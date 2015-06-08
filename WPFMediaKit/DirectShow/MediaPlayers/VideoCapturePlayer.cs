@@ -51,12 +51,17 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
         private IBaseFilter m_captureDevice;
 
         /// <summary>
+        /// The audio capture device filter
+        /// </summary>
+        private IBaseFilter m_audioCaptureFilter;
+
+        /// <summary>
         /// The name of the video capture source device
         /// </summary>
         private string m_videoCaptureSource;
 
         /// <summary>
-        /// Flag to detect if the capture source has changed
+        /// Flag to detect if the video capture source has changed
         /// </summary>
         private bool m_videoCaptureSourceChanged;
 
@@ -66,9 +71,29 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
         private DsDevice m_videoCaptureDevice;
 
         /// <summary>
-        /// Flag to detect if the capture source device has changed
+        /// Flag to detect if the video capture source device has changed
         /// </summary>
         private bool m_videoCaptureDeviceChanged;
+
+        /// <summary>
+        /// The name of the audio capture source device
+        /// </summary>
+        private string m_audioCaptureSource;
+
+        /// <summary>
+        /// The audio capture device
+        /// </summary>
+        private bool m_audioCaptureSourceChanged;
+
+        /// <summary>
+        /// Flag to detect if the audio capture source has changed
+        /// </summary>
+        private DsDevice m_audioCaptureDevice;
+
+        /// <summary>
+        /// Flag to detect if the audio capture source device has changed
+        /// </summary>
+        private bool m_audioCaptureDeviceChanged;
 
         /// <summary>
         /// The sample grabber interface used for getting samples in a callback
@@ -132,6 +157,44 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
                 VerifyAccess();
                 m_videoCaptureDevice = value;
                 m_videoCaptureDeviceChanged = true;
+
+                /* Free our unmanaged resources when
+                 * the source changes */
+                FreeResources();
+            }
+        }
+
+        public string AudioCaptureSource
+        {
+            get
+            {
+                VerifyAccess();
+                return m_audioCaptureSource;
+            }
+            set
+            {
+                VerifyAccess();
+                m_audioCaptureSource = value;
+                m_audioCaptureSourceChanged = true;
+
+                /* Free our unmanaged resources when
+                 * the source changes */
+                FreeResources();
+            }
+        }
+
+        public DsDevice AudioCaptureDevice
+        {
+            get
+            {
+                VerifyAccess();
+                return m_audioCaptureDevice;
+            }
+            set
+            {
+                VerifyAccess();
+                m_audioCaptureDevice = value;
+                m_audioCaptureDeviceChanged = true;
 
                 /* Free our unmanaged resources when
                  * the source changes */
@@ -242,6 +305,17 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
             base.Pause();
         }
 
+        public override void Stop()
+        {
+            VerifyAccess();
+
+            //base.Stop();
+
+            //if(m_graph != null)
+            FreeResources();
+            m_videoCaptureDeviceChanged = true;
+        }
+
         public void ShowCapturePropertyPages(IntPtr hwndOwner)
         {
             VerifyAccess();
@@ -349,21 +423,46 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
                     hr = graphBuilder.SetOutputFileName(MediaSubType.Asf, this.m_fileName, out mux, out sink);
                     DsError.ThrowExceptionForHR(hr);
 
-                    hr = graphBuilder.RenderStream(PinCategory.Capture, MediaType.Video, m_captureDevice, null, mux);
-                    DsError.ThrowExceptionForHR(hr);
-
-                    // use the first audio device
+                    // Recording audio only gets added to the graph when saving to a file
+                    // No need to deal with feedback and such trying to preview to the speakers
                     var audioDevices = DsDevice.GetDevicesOfCat(FilterCategory.AudioInputDevice);
 
                     if (audioDevices.Length > 0)
                     {
-                        var audioDevice = AddFilterByDevicePath(m_graph,
-                                                            FilterCategory.AudioInputDevice,
-                                                            audioDevices[0].DevicePath);
+                        // If audio devices are available and one has not been selected, default to the first one
+                        if(m_audioCaptureDevice == null || m_audioCaptureSource == null)
+                        {
+                            m_audioCaptureDevice = audioDevices[0];
+                            m_audioCaptureDeviceChanged = true;
+                        }
 
-                        hr = graphBuilder.RenderStream(PinCategory.Capture, MediaType.Audio, audioDevice, null, mux);
+                        if (m_audioCaptureSourceChanged)
+                        {
+                            m_audioCaptureFilter = AddFilterByDevicePath(m_graph,
+                                                                FilterCategory.AudioInputDevice,
+                                                                AudioCaptureSource);
+
+                            m_audioCaptureSourceChanged = false;
+                        }
+                        else if (m_audioCaptureDeviceChanged)
+                        {
+                            m_audioCaptureFilter = AddFilterByDevicePath(m_graph,
+                                                                FilterCategory.AudioInputDevice,
+                                                                AudioCaptureDevice.DevicePath);
+
+                            m_audioCaptureDeviceChanged = false;
+                        }
+
+                        hr = graphBuilder.RenderStream(PinCategory.Capture, MediaType.Audio, m_audioCaptureFilter, null, mux);
                         DsError.ThrowExceptionForHR(hr);
+
+                        /* If we have a null capture device, we have an issue */
+                        //if (m_audioCaptureFilter == null)
+                        //    throw new Exception(string.Format("Capture device {0} not found or could not be created", VideoCaptureSource));
                     }
+
+                    hr = graphBuilder.RenderStream(PinCategory.Capture, MediaType.Video, m_captureDevice, null, mux);
+                    DsError.ThrowExceptionForHR(hr);
                 }
 
                 hr = graphBuilder.RenderStream(PinCategory.Preview,
@@ -595,6 +694,11 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
             {
                 Marshal.FinalReleaseComObject(m_captureDevice);
                 m_captureDevice = null;
+            }
+            if (m_audioCaptureFilter != null)
+            {
+                Marshal.FinalReleaseComObject(m_audioCaptureFilter);
+                m_audioCaptureFilter = null;
             }
             if (m_sampleGrabber != null)
             {

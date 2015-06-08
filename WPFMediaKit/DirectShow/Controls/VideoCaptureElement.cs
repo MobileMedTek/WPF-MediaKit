@@ -146,6 +146,82 @@ namespace WPFMediaKit.DirectShow.Controls
 
         #endregion
 
+        #region AudioCaptureSource
+
+        public static readonly DependencyProperty AudioCaptureSourceProperty =
+            DependencyProperty.Register("AudioCaptureSource", typeof(string), typeof(VideoCaptureElement),
+                new FrameworkPropertyMetadata("",
+                    new PropertyChangedCallback(OnAudioCaptureSourceChanged)));
+
+        private bool m_audioSourceChanged;
+
+        public string AudioCaptureSource
+        {
+            get { return (string)GetValue(AudioCaptureSourceProperty); }
+            set { SetValue(AudioCaptureSourceProperty, value); }
+        }
+
+
+        public static readonly DependencyProperty AudioCaptureDeviceProperty =
+            DependencyProperty.Register("AudioCaptureDevice", typeof(DsDevice), typeof(VideoCaptureElement),
+                new FrameworkPropertyMetadata(null, new PropertyChangedCallback(OnAudioCaptureSourceChanged)));
+
+        private bool m_audioDeviceChanged;
+
+        public DsDevice AudioCaptureDevice
+        {
+            get { return (DsDevice)GetValue(AudioCaptureDeviceProperty); }
+            set { SetValue(AudioCaptureDeviceProperty, value); }
+        }
+
+        private static void OnAudioCaptureSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            ((VideoCaptureElement)d).OnAudioCaptureSourceChanged(e);
+        }
+
+        protected virtual void OnAudioCaptureSourceChanged(DependencyPropertyChangedEventArgs e)
+        {
+            if (e.Property == AudioCaptureSourceProperty)
+                m_audioSourceChanged = true;
+            else if (e.Property == AudioCaptureDeviceProperty)
+                m_audioDeviceChanged = true;
+
+            if (HasInitialized)
+                PlayerAudioCaptureSource();
+        }
+
+        private void PlayerAudioCaptureSource()
+        {
+            if (m_audioSourceChanged)
+            {
+                string audioSource = AudioCaptureSource;
+                VideoCapturePlayer.Dispatcher.BeginInvoke((Action)delegate
+                {
+                    VideoCapturePlayer.AudioCaptureSource = audioSource;
+                });
+                m_sourceChanged = false;
+            }
+            else if (m_audioDeviceChanged)
+            {
+                DsDevice audioDevice = AudioCaptureDevice;
+                VideoCapturePlayer.Dispatcher.BeginInvoke((Action)delegate
+                {
+                    VideoCapturePlayer.AudioCaptureDevice = audioDevice;
+                });
+                m_audioDeviceChanged = false;
+            }
+
+            //Dispatcher.BeginInvoke((Action)delegate
+            //{
+            if (IsLoaded)
+                ExecuteMediaState(LoadedBehavior);
+            //else
+            //    ExecuteMediaState(UnloadedBehavior);
+            //});
+        }
+
+        #endregion
+
         #region EnableSampleGrabbing
 
         public static readonly DependencyProperty EnableSampleGrabbingProperty =

@@ -29,6 +29,21 @@ namespace WPFMediaKit.DirectShow.Controls
 				return m_audioRendererNames;
 			}
 		}
+        #endregion
+
+        #region Audio Input Devices
+        public static DsDevice[] AudioInputDevices
+        {
+            get
+            {
+                if (m_audioInputDevices == null)
+                {
+                    m_audioInputDevices = GetDevices(FilterCategory.AudioInputDevice);
+                }
+                return m_audioInputDevices;
+            }
+        }
+        private static DsDevice[] m_audioInputDevices;
 		#endregion
 
 		#region Video Input Devices
