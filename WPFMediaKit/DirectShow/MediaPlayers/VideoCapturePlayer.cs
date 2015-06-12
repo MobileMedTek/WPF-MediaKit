@@ -3,6 +3,8 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using DirectShowLib;
+using System.IO;
+using System.Reflection;
 
 namespace WPFMediaKit.DirectShow.MediaPlayers
 {
@@ -420,7 +422,8 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
                 IFileSinkFilter sink = null;
                 if (!string.IsNullOrEmpty(this.m_fileName))
                 {
-                    hr = graphBuilder.SetOutputFileName(MediaSubType.Asf, this.m_fileName, out mux, out sink);
+                    hr = graphBuilder.SetOutputFileName(MediaSubType.Asf, this.m_fileName + ".wmv", out mux, out sink);
+                    ConfigProfileFromFile(mux, "WMV-HD-1280x720.prx");
                     DsError.ThrowExceptionForHR(hr);
 
                     // Recording audio only gets added to the graph when saving to a file
@@ -530,48 +533,119 @@ namespace WPFMediaKit.DirectShow.MediaPlayers
                 throw new Exception("Failed to get IAMStreamConfig");
             }
 
-            /* The media type of the video */
-            AMMediaType media;
-
-            /* Get the AMMediaType for the video out pin */
-            hr = videoStreamConfig.GetFormat(out media);
-            DsError.ThrowExceptionForHR(hr);
-
             /* Make the VIDEOINFOHEADER 'readable' */
             var videoInfo = new VideoInfoHeader();
-            Marshal.PtrToStructure(media.formatPtr, videoInfo);
 
-            /* Setup the VIDEOINFOHEADER with the parameters we want */
-            videoInfo.AvgTimePerFrame = DSHOW_ONE_SECOND_UNIT / FPS;
-            videoInfo.BmiHeader.Width = DesiredWidth;
-            videoInfo.BmiHeader.Height = DesiredHeight;
+            int iCount = 0, iSize = 0;
+            videoStreamConfig.GetNumberOfCapabilities(out iCount, out iSize);
 
-            if (mediaSubType != Guid.Empty)
+            IntPtr TaskMemPointer = Marshal.AllocCoTaskMem(iSize);
+
+
+            AMMediaType pmtConfig = null;
+            for (int iFormat = 0; iFormat < iCount; iFormat++)
             {
-                int fourCC = 0;
-                byte[] b = mediaSubType.ToByteArray();
-                fourCC = b[0];
-                fourCC |= b[1] << 8;
-                fourCC |= b[2] << 16;
-                fourCC |= b[3] << 24;
+                IntPtr ptr = IntPtr.Zero;
 
-                videoInfo.BmiHeader.Compression = fourCC;
-                media.subType = mediaSubType;
+                videoStreamConfig.GetStreamCaps(iFormat, out pmtConfig, TaskMemPointer);
+
+                videoInfo = (VideoInfoHeader)Marshal.PtrToStructure(pmtConfig.formatPtr, typeof(VideoInfoHeader));
+
+                if (videoInfo.BmiHeader.Width == DesiredWidth && videoInfo.BmiHeader.Height == DesiredHeight)
+                {
+
+                    ///* Setup the VIDEOINFOHEADER with the parameters we want */
+                    videoInfo.AvgTimePerFrame = DSHOW_ONE_SECOND_UNIT / FPS;
+
+                    if (mediaSubType != Guid.Empty)
+                    {
+                        int fourCC = 0;
+                        byte[] b = mediaSubType.ToByteArray();
+                        fourCC = b[0];
+                        fourCC |= b[1] << 8;
+                        fourCC |= b[2] << 16;
+                        fourCC |= b[3] << 24;
+
+                        videoInfo.BmiHeader.Compression = fourCC;
+                        // pmtConfig.subType = mediaSubType;
+
+                    }
+
+                    /* Copy the data back to unmanaged memory */
+                    Marshal.StructureToPtr(videoInfo, pmtConfig.formatPtr, true);
+
+                    hr = videoStreamConfig.SetFormat(pmtConfig);
+                    break;
+                }
+
             }
 
-            /* Copy the data back to unmanaged memory */
-            Marshal.StructureToPtr(videoInfo, media.formatPtr, false);
-
-            /* Set the format */
-            hr = videoStreamConfig.SetFormat(media);
-
-            /* We don't want any memory leaks, do we? */
-            DsUtils.FreeAMMediaType(media);
+            /* Free memory */
+            Marshal.FreeCoTaskMem(TaskMemPointer);
+            DsUtils.FreeAMMediaType(pmtConfig);
 
             if (hr < 0)
                 return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// Configure profile from file to Asf file writer
+        /// </summary>
+        /// <param name="asfWriter"></param>
+        /// <param name="prxFileName"></param>
+        /// <returns></returns>
+        public bool ConfigProfileFromFile(IBaseFilter asfWriter, string prxFileName)
+        {
+            int hr;
+            
+            // Set the profile to be used for conversion
+            if (!string.IsNullOrEmpty(prxFileName))
+            {
+                // Load the profile XML contents
+                string profileData;
+                var assembly = Assembly.GetExecutingAssembly();
+
+                var resources = assembly.GetManifestResourceNames();
+
+                using (Stream stream = assembly.GetManifestResourceStream("WPFMediaKit.DirectShow.MediaPlayers." + prxFileName))
+                using (StreamReader reader = new StreamReader(stream))
+                {
+                    profileData = reader.ReadToEnd();
+                }
+
+                // Create an appropriate IWMProfile from the data
+                // Open the profile manager
+                IWMProfileManager profileManager;
+                IWMProfile wmProfile = null;
+                hr = WMLib.WMCreateProfileManager(out profileManager);
+                if (hr >= 0)
+                {
+                    // error message: The profile is invalid (0xC00D0BC6)
+                    // E.g. no <prx> tags
+                    hr = profileManager.LoadProfileByData(profileData, out wmProfile);
+                }
+
+                if (profileManager != null)
+                {
+                    Marshal.ReleaseComObject(profileManager);
+                    profileManager = null;
+                }
+
+                // Config only if there is a profile retrieved
+                if (hr >= 0)
+                {
+                    // Set the profile on the writer
+                    IConfigAsfWriter configWriter = (IConfigAsfWriter)asfWriter;
+                    hr = configWriter.ConfigureFilterUsingProfile(wmProfile);
+                    if (hr >= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
         private Bitmap m_videoFrame;

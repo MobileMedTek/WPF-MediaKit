@@ -81,6 +81,7 @@
     <Compile Include="DirectShow\MediaPlayers\DvdPlayer.cs" />
     <Compile Include="DirectShow\MediaPlayers\MediaDetector.cs" />
     <Compile Include="DirectShow\MediaPlayers\PropertyPageHelper.cs" />
+    <Compile Include="DirectShow\MediaPlayers\WMLib.cs" />
     <Compile Include="MediaFoundation\Interop.cs" />
     <Compile Include="Threading\WorkDispatcher.cs" />
     <Compile Include="Threading\WorkDispatcherObject.cs" />
@@ -117,6 +118,7 @@
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
       <SubType>Designer</SubType>
     </EmbeddedResource>
+    <EmbeddedResource Include="DirectShow\MediaPlayers\WMV-HD-1280x720.prx" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
